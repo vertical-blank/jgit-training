@@ -23,8 +23,6 @@ def repository = new FileRepositoryBuilder()
   .setMustExist( true )
   .findGitDir( dir ).build()
 
-def git = Git.wrap(repository)
-
 // find head-ref of specified branch
 def head = repository.exactRef("refs/heads/" + branch)
 println("Ref of refs/heads/" + branch + ": " + head)
