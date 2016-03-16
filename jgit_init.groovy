@@ -6,15 +6,12 @@ import org.eclipse.jgit.storage.file.*
 import org.eclipse.jgit.lib.*
 import org.eclipse.jgit.api.*
 
-
-println args[0]
-
 def name = args[0]
 
 def dir = new File(new File('.'), name)
 dir.mkdir()
 
-def git = Git.init().setDirectory(dir).setBare(false).call()
+def git = Git.init().setGitDir(dir).setBare(false).call()
 
 def readme = new File(dir, 'Readme.md')
 readme.write('aaaa')
@@ -24,9 +21,3 @@ git.commit().setAll(true).setMessage('initial commit').setCommitter('y', 'y@yy.y
 
 git.branchCreate().setName('draft').call()
 git.checkout().setName('draft').call()
-
-
-
-
-
-
