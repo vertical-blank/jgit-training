@@ -1,14 +1,24 @@
 package jgitWrap;
 
-import org.eclipse.jgit.api.*;
-import java.io.*;
-import java.util.*;
-import org.junit.Test;
-import static org.junit.Assert.*;
-import org.eclipse.jgit.lib.*;
-import jgitWrap.RepositoryWrapper.*;
-import jgitWrap.RepositoryWrapper.Branch.*;
+import static org.junit.Assert.assertEquals;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.io.Writer;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+
+import jgitWrap.RepositoryWrapper.Branch;
 import jgitWrap.RepositoryWrapper.Dir;
+
+import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.lib.Constants;
+import org.eclipse.jgit.lib.Ref;
+import org.junit.Test;
 
 public class RepositoryTest {
   
@@ -45,10 +55,10 @@ public class RepositoryTest {
     Branch master  = repo.branch("master");
     Branch develop = master.newBranch("develop");
     
-    Committer committer = develop.commiter();
+    Dir root = new Dir();
     String updateContent = "updated";
-    committer.addFile("README.md", updateContent.getBytes());
-    committer.commit("test commit", new RepositoryWrapper.Ident("Ident", "Ident@Ident.com"));
+    root.addFile("README.md", updateContent.getBytes());
+    develop.commit(root, "test commit", new RepositoryWrapper.Ident("Ident", "Ident@Ident.com"));
     
     InputStream stream = develop.getStream("README.md");
     
@@ -59,7 +69,7 @@ public class RepositoryTest {
     for(Ref branchRef: git.branchList().call()){
       branchNames.add(branchRef.getName());
     }
-    assertEquals(branchNames, new HashSet(Arrays.asList(Constants.R_HEADS + "master", Constants.R_HEADS + "develop")));
+    assertEquals(branchNames, new HashSet<String>(Arrays.asList(Constants.R_HEADS + "master", Constants.R_HEADS + "develop")));
     
     // clean up.
     cleanUpRepo(git);
@@ -84,17 +94,17 @@ public class RepositoryTest {
     Branch master  = repo.branch("master");
     Branch develop = master.newBranch("develop");
     
-    Committer committer = develop.commiter();
+    Dir root = new Dir();
     RepositoryWrapper.Ident ident = new RepositoryWrapper.Ident("Ident", "Ident@Ident.com");
     String firstContent = "first";
-    committer.addFile("README.md", firstContent.getBytes());
-    committer.commit("first commit", ident);
+    root.addFile("README.md", firstContent.getBytes());
+    develop.commit(root, "first commit", ident);
     
     String secondContent = "second";
     String anotherContent = "another";
-    committer.addFile("ANOTHER.md", anotherContent.getBytes());
-    committer.addFile("README.md", secondContent.getBytes());
-    committer.commit("second commit", ident);
+    root.addFile("ANOTHER.md", anotherContent.getBytes());
+    root.addFile("README.md", secondContent.getBytes());
+    develop.commit(root, "second commit", ident);
     
     InputStream readmeStream = develop.getStream("README.md");
     assertEquals(streamToString(readmeStream), secondContent);
@@ -106,14 +116,14 @@ public class RepositoryTest {
     for(Ref branchRef: git.branchList().call()){
       branchNames.add(branchRef.getName());
     }
-    assertEquals(branchNames, new HashSet(Arrays.asList(Constants.R_HEADS + "master", Constants.R_HEADS + "develop")));
+    assertEquals(branchNames, new HashSet<String>(Arrays.asList(Constants.R_HEADS + "master", Constants.R_HEADS + "develop")));
     
     // clean up.
     cleanUpRepo(git);
   }
   
   @Test
-  public void commitDirectory() throws Exception {
+  public void commitNestedDirectory() throws Exception {
     File repoDir = parepareDirectory();
     Git git = prepareGit(repoDir);
     
@@ -131,12 +141,11 @@ public class RepositoryTest {
     Branch master  = repo.branch("master");
     Branch develop = master.newBranch("develop");
     
-    
-    Committer committer = develop.commiter();
+    Dir root = new Dir();
     RepositoryWrapper.Ident ident = new RepositoryWrapper.Ident("Ident", "Ident@Ident.com");
     
     String firstContent = "dirctorieeeeeeeees";
-    committer.addFile("README.md", firstContent.getBytes());
+    root.addFile("README.md", firstContent.getBytes());
     
     Dir dir1 = new Dir("child1");
     Dir dir2 = new Dir("child2");
@@ -144,7 +153,7 @@ public class RepositoryTest {
     Dir dir1_2 = new Dir("child1-child2");
     Dir dir2_1 = new Dir("child2-child1");
     Dir dir2_2 = new Dir("child2-child2");
-    committer.addDir(dir1).addDir(dir2);
+    root.addDir(dir1).addDir(dir2);
     dir1.addDir(dir1_1).addDir(dir1_2);
     dir2.addDir(dir2_1).addDir(dir2_2);
     
@@ -163,11 +172,11 @@ public class RepositoryTest {
     dir2_2.addFile("1.md", "2_2__1".getBytes());
     dir2_2.addFile("2.md", "2_2__2".getBytes());
     
-    committer.commit("dirctories commit", ident);
+    develop.commit(root, "dirctories commit", ident);
     
     assertEquals(
-      new HashSet(develop.listFiles()), 
-      new HashSet(Arrays.asList(
+      new HashSet<String>(develop.listFiles()),
+      new HashSet<String>(Arrays.asList(
         "README.md",
         "child1/1.md",
         "child1/2.md",
