@@ -9,6 +9,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.eclipse.jgit.errors.IncorrectObjectTypeException;
+import org.eclipse.jgit.errors.MissingObjectException;
 import org.eclipse.jgit.lib.CommitBuilder;
 import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.FileMode;
@@ -71,7 +73,7 @@ class RepositoryWrapper {
     }
     
     /**
-     * find head ref
+     * Find head ref
      * @return
      * @throws IOException
      */
@@ -80,15 +82,49 @@ class RepositoryWrapper {
     }
     
     /**
-     * list all filepaths of head
+     * List all commits of this branch.
+     * @return all commits.
+     * @throws MissingObjectException
+     * @throws IncorrectObjectTypeException
+     * @throws IOException
+     */
+    public List<RevCommit> listCommits() throws MissingObjectException, IncorrectObjectTypeException, IOException {
+      Ref head = this.findHeadRef();
+      
+      try (RevWalk walk = new RevWalk(RepositoryWrapper.this.repo)) {
+        RevCommit commit = walk.parseCommit(head.getObjectId());
+        
+        walk.markStart(commit);
+        
+        List<RevCommit> revs = new ArrayList<RevCommit>();
+        for (RevCommit rev : walk) {
+          revs.add(rev);
+        }
+        walk.dispose();
+        
+        return revs;
+      }
+    }
+    
+    /**
+     * List all filepaths of head
      * @return
      * @throws IOException
      */
     public List<String> listFiles() throws IOException {
+      return listFiles(null);
+    }
+    
+    /**
+     * List all filepaths of specified revision.
+     * @return
+     * @throws IOException
+     */
+    public List<String> listFiles(RevCommit rev) throws IOException {
       List<String> list = new ArrayList<String>();
       
       try (RevWalk revWalk = new RevWalk(RepositoryWrapper.this.repo)) {
-        RevCommit commit = revWalk.parseCommit(this.findHeadRef().getObjectId());
+        RevCommit commit = rev == null ? revWalk.parseCommit(this.findHeadRef().getObjectId()) : rev;
         RevTree tree = revWalk.parseTree(commit.getTree().getId());
         
         try (TreeWalk treeWalk = new TreeWalk(RepositoryWrapper.this.repo)){
@@ -105,7 +141,7 @@ class RepositoryWrapper {
     }
     
     /**
-     * format entries recursively.
+     * Format entries recursively.
      * @param dir dir instance
      * @param inserter ObjectInserter
      * @return treeFormatter contains all entries.
