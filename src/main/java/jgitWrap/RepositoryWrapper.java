@@ -22,6 +22,8 @@ import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.RefUpdate;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.lib.TreeFormatter;
+import org.eclipse.jgit.merge.MergeStrategy;
+import org.eclipse.jgit.merge.Merger;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevTree;
 import org.eclipse.jgit.revwalk.RevWalk;
@@ -35,6 +37,8 @@ import org.eclipse.jgit.treewalk.filter.PathFilter;
  * @author yohei224
  */
 class RepositoryWrapper {
+  
+  private static final String MASTER = "master";
   
   /** Repository */
   private Repository repo;
@@ -54,7 +58,7 @@ class RepositoryWrapper {
   }
   
   public RepositoryWrapper initializeRepo(String filename, byte[] initialReadme, String comment) throws IOException {
-    return this.initializeRepo("master", filename, initialReadme, comment);
+    return this.initializeRepo(MASTER, filename, initialReadme, comment);
   }
   
   public RepositoryWrapper initializeRepo(String mastername, String filename, byte[] initialReadme, String comment) throws IOException {
@@ -65,12 +69,23 @@ class RepositoryWrapper {
     return this;
   }
   
+  public RepositoryWrapper initializeRepo(String comment) throws IOException {
+    return this.initializeRepo(MASTER, comment);
+  }
+  
+  public RepositoryWrapper initializeRepo(String mastername, String comment) throws IOException {
+    Branch master = this.branch(mastername);
+    Dir root = new Dir();
+    master.commit(root, comment);
+    return this;
+  }
+  
   /**
    * List all branches of this repo.
    * @return all branches.
    * @throws IOException
    */
-  public Collection<String> listBranches() throws IOException {
+  public List<String> listBranches() throws IOException {
     Collection<Ref> values = this.repo.getRefDatabase().getRefs(Constants.R_HEADS).values();
     
     List<String> list = new ArrayList<String>();
@@ -93,6 +108,8 @@ class RepositoryWrapper {
   /** Branch */
   class Branch {
     
+    private final Repository repo = RepositoryWrapper.this.repo;
+    
     /** branchName */
     public final String branchName;
     
@@ -109,8 +126,8 @@ class RepositoryWrapper {
      * @return
      * @throws IOException
      */
-    private Ref findHeadRef() throws IOException {
-      return RepositoryWrapper.this.repo.exactRef(Constants.R_HEADS + this.branchName);
+    public Ref findHeadRef() throws IOException {
+      return this.repo.exactRef(Constants.R_HEADS + this.branchName);
     }
     
     /**
@@ -120,10 +137,10 @@ class RepositoryWrapper {
      * @throws IncorrectObjectTypeException
      * @throws IOException
      */
-    public Collection<RevCommit> listCommits() throws MissingObjectException, IncorrectObjectTypeException, IOException {
+    public List<RevCommit> listCommits() throws MissingObjectException, IncorrectObjectTypeException, IOException {
       Ref head = this.findHeadRef();
       
-      try (RevWalk walk = new RevWalk(RepositoryWrapper.this.repo)) {
+      try (RevWalk walk = new RevWalk(this.repo)) {
         RevCommit commit = walk.parseCommit(head.getObjectId());
         
         walk.markStart(commit);
@@ -143,7 +160,7 @@ class RepositoryWrapper {
      * @return
      * @throws IOException
      */
-    public Collection<String> listFiles() throws IOException {
+    public List<String> listFiles() throws IOException {
       return listFiles(null);
     }
     
@@ -152,14 +169,14 @@ class RepositoryWrapper {
      * @return
      * @throws IOException
      */
-    public Collection<String> listFiles(RevCommit rev) throws IOException {
+    public List<String> listFiles(RevCommit rev) throws IOException {
       List<String> list = new ArrayList<String>();
       
-      try (RevWalk revWalk = new RevWalk(RepositoryWrapper.this.repo)) {
+      try (RevWalk revWalk = new RevWalk(this.repo)) {
         RevCommit commit = rev == null ? revWalk.parseCommit(this.findHeadRef().getObjectId()) : rev;
         RevTree tree = revWalk.parseTree(commit.getTree().getId());
         
-        try (TreeWalk treeWalk = new TreeWalk(RepositoryWrapper.this.repo)){
+        try (TreeWalk treeWalk = new TreeWalk(this.repo)){
           treeWalk.addTree(tree);
           treeWalk.setRecursive(true);
           
@@ -203,32 +220,84 @@ class RepositoryWrapper {
      * @throws IOException
      */
     public RefUpdate.Result commit(Dir dir, String message) throws IOException {
-      ObjectInserter inserter = RepositoryWrapper.this.repo.newObjectInserter();
-  
-      TreeFormatter formatter = formatDir(dir, inserter);
-      
-      ObjectId treeId = inserter.insert(formatter);
-      
-      CommitBuilder newCommit = new CommitBuilder();
-      newCommit.setCommitter(ident.toPersonIdent());
-      newCommit.setAuthor(ident.toPersonIdent());
-      newCommit.setMessage(message);
-      
-      Ref findHeadRef = Branch.this.findHeadRef();
-      if (findHeadRef != null){
-        newCommit.setParentId(findHeadRef.getObjectId());
+      try (ObjectInserter inserter = this.repo.newObjectInserter()) {
+        TreeFormatter formatter = formatDir(dir, inserter);
+        
+        ObjectId treeId = inserter.insert(formatter);
+        
+        CommitBuilder newCommit = new CommitBuilder();
+        newCommit.setCommitter(ident.toPersonIdent());
+        newCommit.setAuthor(ident.toPersonIdent());
+        newCommit.setMessage(message);
+        
+        Ref findHeadRef = this.findHeadRef();
+        if (findHeadRef != null){
+          newCommit.setParentId(findHeadRef.getObjectId());
+        }
+        newCommit.setTreeId(treeId);
+        
+        ObjectId newHeadId = inserter.insert(newCommit);
+        inserter.flush();
+        inserter.close();
+        
+        RefUpdate refUpdate = this.repo.updateRef(Constants.R_HEADS + this.branchName);
+        refUpdate.setNewObjectId(newHeadId);
+        RefUpdate.Result updateResult = refUpdate.update();
+        
+        return updateResult;
       }
-      newCommit.setTreeId(treeId);
+    }
+    
+    private MergeStrategy mergeStrategy = MergeStrategy.RECURSIVE;
+    public boolean mergeTo(Branch toBranch) throws IOException {
+      ObjectInserter inserter = this.repo.newObjectInserter();
       
-      ObjectId newHeadId = inserter.insert(newCommit);
-      inserter.flush();
-      inserter.close();
-      
-      RefUpdate refUpdate = RepositoryWrapper.this.repo.updateRef(Constants.R_HEADS + Branch.this.branchName);
-      refUpdate.setNewObjectId(newHeadId);
-      RefUpdate.Result updateResult = refUpdate.update();
-      
-      return updateResult;
+      try (RevWalk revWalk = new RevWalk(this.repo)) {
+        RevCommit srcCommit = revWalk.parseCommit(this.findHeadRef().getObjectId());
+        
+        Ref toHeadRef = toBranch.findHeadRef();
+        RevCommit toCommit  = revWalk.parseCommit(toHeadRef.getObjectId());
+        
+        //this.repo.writeMergeCommitMsg("mergeMessage");
+        //this.repo.writeMergeHeads(Arrays.asList(repo.exactRef(Constants.HEAD).getObjectId()));
+        
+        Merger merger = mergeStrategy.newMerger(this.repo);
+        merger.merge(srcCommit, toCommit);
+        ObjectId mergeResultTreeId = merger.getResultTreeId();
+        
+        CommitBuilder newCommit = new CommitBuilder();
+        newCommit.setCommitter(ident.toPersonIdent());
+        newCommit.setAuthor(ident.toPersonIdent());
+        newCommit.setMessage("merge commit message");
+        newCommit.setParentIds(toCommit.getId(), srcCommit.getId());
+        newCommit.setTreeId(mergeResultTreeId);
+        
+        ObjectId newHeadId = inserter.insert(newCommit);
+        inserter.flush();
+        inserter.close();
+        
+//        RefUpdate refUpdateSrc = this.repo.updateRef(Constants.R_HEADS + this.branchName);
+//        refUpdateSrc.setNewObjectId(newHeadId);
+//        refUpdateSrc.update();
+        
+        RefUpdate refUpdateTo = this.repo.updateRef(Constants.R_HEADS + toBranch.branchName);
+        refUpdateTo.setNewObjectId(newHeadId);
+        refUpdateTo.update();
+        
+        /*
+        formatter.append(name, tree);
+        
+        ObjectId newHeadId = inserter.insert(mergeResultTreeId);
+        inserter.flush();
+        inserter.close();
+        
+        RefUpdate refUpdate = this.repo.updateRef(Constants.R_HEADS + toBranch.branchName);
+        refUpdate.setNewObjectId(mergeResultTreeId);
+        RefUpdate.Result updateResult = refUpdate.update();
+        */
+        
+        return true;
+      }
     }
     
     /**
@@ -240,7 +309,7 @@ class RepositoryWrapper {
     public Branch newBranch(String newBranchName) throws IOException {
       Branch newBranch = RepositoryWrapper.this.branch(newBranchName);
       
-      RefUpdate refUpdate = RepositoryWrapper.this.repo.updateRef(Constants.R_HEADS + newBranchName);
+      RefUpdate refUpdate = this.repo.updateRef(Constants.R_HEADS + newBranchName);
       
       Ref findHeadRef = this.findHeadRef();
       refUpdate.setNewObjectId(findHeadRef.getObjectId());
@@ -257,11 +326,11 @@ class RepositoryWrapper {
      * @throws FileNotFoundException
      */
     public InputStream getStream(String path) throws IOException, FileNotFoundException {
-      try (RevWalk revWalk = new RevWalk(RepositoryWrapper.this.repo)){
+      try (RevWalk revWalk = new RevWalk(this.repo)){
         RevCommit commit = revWalk.parseCommit(this.findHeadRef().getObjectId());
         RevTree tree = revWalk.parseTree(commit.getTree().getId());
         
-        try (TreeWalk treeWalk = new TreeWalk(RepositoryWrapper.this.repo)){
+        try (TreeWalk treeWalk = new TreeWalk(this.repo)){
           treeWalk.addTree(tree);
           treeWalk.setFilter(PathFilter.create(path));
           if(!treeWalk.next()){
