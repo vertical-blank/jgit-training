@@ -20,6 +20,7 @@ import org.eclipse.jgit.lib.ObjectInserter;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.RefUpdate;
+import org.eclipse.jgit.lib.RefUpdate.Result;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.lib.TreeFormatter;
 import org.eclipse.jgit.merge.MergeStrategy;
@@ -242,7 +243,42 @@ class RepositoryWrapper {
         
         RefUpdate refUpdate = this.repo.updateRef(Constants.R_HEADS + this.branchName);
         refUpdate.setNewObjectId(newHeadId);
-        RefUpdate.Result updateResult = refUpdate.update();
+        Result updateResult = refUpdate.update();
+
+        repo.writeMergeCommitMsg(null);
+        repo.writeRevertHead(null);
+
+        /*
+        switch (updateResult) {
+        case NEW:
+        case FORCED:
+        case FAST_FORWARD: {
+          // setCallable(false);
+          if (state == RepositoryState.MERGING_RESOLVED
+              || isMergeDuringRebase(state)) {
+            // Commit was successful. Now delete the files
+            // used for merge commits
+            repo.writeMergeCommitMsg(null);
+            repo.writeMergeHeads(null);
+          } else if (state == RepositoryState.CHERRY_PICKING_RESOLVED) {
+            repo.writeMergeCommitMsg(null);
+            repo.writeCherryPickHead(null);
+          } else if (state == RepositoryState.REVERTING_RESOLVED) {
+            repo.writeMergeCommitMsg(null);
+            repo.writeRevertHead(null);
+          }
+          return revCommit;
+        }
+        case REJECTED:
+        case LOCK_FAILURE:
+          throw new ConcurrentRefUpdateException(
+              JGitText.get().couldNotLockHEAD, ru.getRef(), rc);
+        default:
+          throw new JGitInternalException(MessageFormat.format(
+              JGitText.get().updatingRefFailed, Constants.HEAD,
+              commitId.toString(), rc));
+        }
+        */
         
         return updateResult;
       }

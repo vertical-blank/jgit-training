@@ -80,21 +80,16 @@ public class RepositoryTest {
     String firstContent = "first";
     root.addFile("README.md", firstContent.getBytes());
     
-    Thread.sleep(1000 * 60);
+    System.out.println(develop.commit(root, "first commit"));
     
-    develop.commit(root, "first commit");
-    
-    develop = repo.branch("develop");
     root = new Dir();
     
     String secondContent = "second";
     String anotherContent = "another";
     root.addFile("ANOTHER.md", anotherContent.getBytes());
     root.addFile("README.md", secondContent.getBytes());
-
-    Thread.sleep(1000);
     
-    develop.commit(root, "second commit");
+    System.out.println(develop.commit(root, "second commit"));
     
     //assertEquals(streamToString(develop.getStream("README.md")), secondContent);
     //assertEquals(streamToString(develop.getStream("ANOTHER.md")), anotherContent);
