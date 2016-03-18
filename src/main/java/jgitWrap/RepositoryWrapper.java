@@ -5,6 +5,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,16 +38,47 @@ class RepositoryWrapper {
   
   /** Repository */
   private Repository repo;
+  private Ident ident;
   
   /**
    * Constructor
    * @param dir git workdirectory
+   * @param ident 
    * @throws IOException
    */
-  public RepositoryWrapper(File dir) throws IOException {
+  public RepositoryWrapper(File dir, Ident ident) throws IOException {
     this.repo = new FileRepositoryBuilder()
                 .setMustExist(true)
-                .findGitDir(dir).build();
+                .setGitDir(dir).build();
+    this.ident = ident;
+  }
+  
+  public RepositoryWrapper initializeRepo(String filename, byte[] initialReadme, String comment) throws IOException {
+    return this.initializeRepo("master", filename, initialReadme, comment);
+  }
+  
+  public RepositoryWrapper initializeRepo(String mastername, String filename, byte[] initialReadme, String comment) throws IOException {
+    Branch master = this.branch(mastername);
+    Dir root = new Dir();
+    root.addFile(filename, initialReadme);
+    master.commit(root, comment);
+    return this;
+  }
+  
+  /**
+   * List all branches of this repo.
+   * @return all branches.
+   * @throws IOException
+   */
+  public Collection<String> listBranches() throws IOException {
+    Collection<Ref> values = this.repo.getRefDatabase().getRefs(Constants.R_HEADS).values();
+    
+    List<String> list = new ArrayList<String>();
+    for (Ref ref : values) {
+      list.add(ref.getName().substring(Constants.R_HEADS.length()));
+    }
+    
+    return list;
   }
   
   /**
@@ -88,7 +120,7 @@ class RepositoryWrapper {
      * @throws IncorrectObjectTypeException
      * @throws IOException
      */
-    public List<RevCommit> listCommits() throws MissingObjectException, IncorrectObjectTypeException, IOException {
+    public Collection<RevCommit> listCommits() throws MissingObjectException, IncorrectObjectTypeException, IOException {
       Ref head = this.findHeadRef();
       
       try (RevWalk walk = new RevWalk(RepositoryWrapper.this.repo)) {
@@ -111,7 +143,7 @@ class RepositoryWrapper {
      * @return
      * @throws IOException
      */
-    public List<String> listFiles() throws IOException {
+    public Collection<String> listFiles() throws IOException {
       return listFiles(null);
     }
     
@@ -120,7 +152,7 @@ class RepositoryWrapper {
      * @return
      * @throws IOException
      */
-    public List<String> listFiles(RevCommit rev) throws IOException {
+    public Collection<String> listFiles(RevCommit rev) throws IOException {
       List<String> list = new ArrayList<String>();
       
       try (RevWalk revWalk = new RevWalk(RepositoryWrapper.this.repo)) {
@@ -167,11 +199,10 @@ class RepositoryWrapper {
     /**
      * Execute commit to repo.
      * @param message commit message
-     * @param ident committer ident
      * @return result
      * @throws IOException
      */
-    public RefUpdate.Result commit(Dir dir, String message, Ident ident) throws IOException {
+    public RefUpdate.Result commit(Dir dir, String message) throws IOException {
       ObjectInserter inserter = RepositoryWrapper.this.repo.newObjectInserter();
   
       TreeFormatter formatter = formatDir(dir, inserter);
@@ -182,7 +213,11 @@ class RepositoryWrapper {
       newCommit.setCommitter(ident.toPersonIdent());
       newCommit.setAuthor(ident.toPersonIdent());
       newCommit.setMessage(message);
-      newCommit.setParentId(Branch.this.findHeadRef().getObjectId());
+      
+      Ref findHeadRef = Branch.this.findHeadRef();
+      if (findHeadRef != null){
+        newCommit.setParentId(findHeadRef.getObjectId());
+      }
       newCommit.setTreeId(treeId);
       
       ObjectId newHeadId = inserter.insert(newCommit);
@@ -206,14 +241,16 @@ class RepositoryWrapper {
       Branch newBranch = RepositoryWrapper.this.branch(newBranchName);
       
       RefUpdate refUpdate = RepositoryWrapper.this.repo.updateRef(Constants.R_HEADS + newBranchName);
-      refUpdate.setNewObjectId(this.findHeadRef().getObjectId());
+      
+      Ref findHeadRef = this.findHeadRef();
+      refUpdate.setNewObjectId(findHeadRef.getObjectId());
       refUpdate.update();
       
       return newBranch;
     }
     
     /**
-     * returns inputstream of file contained by head of this brach.
+     * Returns inputstream of file contained by head of this brach.
      * @param path
      * @return
      * @throws IOException
@@ -237,23 +274,26 @@ class RepositoryWrapper {
     }
   }
   
-  /** ident */
+  /** Ident */
   static class Ident {
     private String name;
     private String mail;
+    private PersonIdent personIdent;
     
     Ident(String name, String mail){
       this.name = name;
       this.mail = mail;
     }
     
-    /** convert to jgit navtive ident */
+    /** Convert to jgit navtive ident */
     public PersonIdent toPersonIdent(){
-      return new PersonIdent(this.name, this.mail);
+      if (personIdent == null)
+        personIdent = new PersonIdent(this.name, this.mail);
+      return personIdent;
     }
   }
   
-  /** direcotry object for commting */
+  /** Direcotry object for commting */
   static class Dir {
     final String name;
     

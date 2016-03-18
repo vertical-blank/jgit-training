@@ -6,30 +6,28 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.io.Writer;
 import java.util.Arrays;
 import java.util.HashSet;
-import java.util.Set;
 
 import jgitWrap.RepositoryWrapper.Branch;
 import jgitWrap.RepositoryWrapper.Dir;
+import jgitWrap.RepositoryWrapper.Ident;
 
 import org.eclipse.jgit.api.Git;
-import org.eclipse.jgit.lib.Constants;
-import org.eclipse.jgit.lib.Ref;
 import org.junit.Test;
 
 public class RepositoryTest {
   
+  private Ident ident = new RepositoryWrapper.Ident("Ident", "Ident@Ident.com");
+
   private File parepareDirectory() {
-    File repoDir = new File(System.getProperty("java.io.tmpdir"), "tmpRepo");
+    File repoDir = new File(System.getProperty("java.io.tmpdir"), "tmpRepo.git");
     repoDir.mkdir();
     return repoDir;
   }
   
   private Git prepareGit(File repoDir) throws Exception {
-    return Git.init().setDirectory(repoDir).setBare(false).call();
+    return Git.init().setGitDir(repoDir).setBare(true).call();
   }
   
   private void cleanUpRepo(Git git) throws Exception {
@@ -41,16 +39,7 @@ public class RepositoryTest {
     File repoDir = parepareDirectory();
     Git git = prepareGit(repoDir);
     
-    File readme = new File(repoDir, "README.md");
-    Writer writer = new PrintWriter(readme);
-    writer.write("initial content");
-    writer.close();
-    
-    git.add().addFilepattern("README.md").call();
-    
-    git.commit().setAll(true).setMessage("initial commit").setCommitter("y", "y@yy.y").call();
-    
-    RepositoryWrapper repo = new RepositoryWrapper(repoDir);
+    RepositoryWrapper repo = new RepositoryWrapper(repoDir, ident).initializeRepo("README.md", "initial".getBytes(), "initial commit");
     
     Branch master  = repo.branch("master");
     Branch develop = master.newBranch("develop");
@@ -58,18 +47,14 @@ public class RepositoryTest {
     Dir root = new Dir();
     String updateContent = "updated";
     root.addFile("README.md", updateContent.getBytes());
-    develop.commit(root, "test commit", new RepositoryWrapper.Ident("Ident", "Ident@Ident.com"));
+    develop.commit(root, "test commit");
     
     InputStream stream = develop.getStream("README.md");
     
     String contentFromGit = streamToString(stream);
     assertEquals(contentFromGit, updateContent);
     
-    Set<String> branchNames = new HashSet<String>();
-    for(Ref branchRef: git.branchList().call()){
-      branchNames.add(branchRef.getName());
-    }
-    assertEquals(branchNames, new HashSet<String>(Arrays.asList(Constants.R_HEADS + "master", Constants.R_HEADS + "develop")));
+    assertEquals(new HashSet<String>(repo.listBranches()), new HashSet<String>(Arrays.asList("master", "develop")));
     
     // clean up.
     cleanUpRepo(git);
@@ -80,43 +65,26 @@ public class RepositoryTest {
     File repoDir = parepareDirectory();
     Git git = prepareGit(repoDir);
     
-    File readme = new File(repoDir, "README.md");
-    Writer writer = new PrintWriter(readme);
-    writer.write("initial content");
-    writer.close();
-    
-    git.add().addFilepattern("README.md").call();
-    
-    git.commit().setAll(true).setMessage("initial commit").setCommitter("y", "y@yy.y").call();
-    
-    RepositoryWrapper repo = new RepositoryWrapper(repoDir);
+    RepositoryWrapper repo = new RepositoryWrapper(repoDir, ident).initializeRepo("README.md", "initial".getBytes(), "initial commit");
     
     Branch master  = repo.branch("master");
     Branch develop = master.newBranch("develop");
     
     Dir root = new Dir();
-    RepositoryWrapper.Ident ident = new RepositoryWrapper.Ident("Ident", "Ident@Ident.com");
     String firstContent = "first";
     root.addFile("README.md", firstContent.getBytes());
-    develop.commit(root, "first commit", ident);
+    develop.commit(root, "first commit");
     
     String secondContent = "second";
     String anotherContent = "another";
     root.addFile("ANOTHER.md", anotherContent.getBytes());
     root.addFile("README.md", secondContent.getBytes());
-    develop.commit(root, "second commit", ident);
+    develop.commit(root, "second commit");
     
-    InputStream readmeStream = develop.getStream("README.md");
-    assertEquals(streamToString(readmeStream), secondContent);
+    assertEquals(streamToString(develop.getStream("README.md")), secondContent);
+    assertEquals(streamToString(develop.getStream("ANOTHER.md")), anotherContent);
     
-    InputStream anotherStream = develop.getStream("ANOTHER.md");
-    assertEquals(streamToString(anotherStream), anotherContent);
-    
-    Set<String> branchNames = new HashSet<String>();
-    for(Ref branchRef: git.branchList().call()){
-      branchNames.add(branchRef.getName());
-    }
-    assertEquals(branchNames, new HashSet<String>(Arrays.asList(Constants.R_HEADS + "master", Constants.R_HEADS + "develop")));
+    assertEquals(streamToString(master.getStream("README.md")), "initial");
     
     // clean up.
     cleanUpRepo(git);
@@ -127,22 +95,12 @@ public class RepositoryTest {
     File repoDir = parepareDirectory();
     Git git = prepareGit(repoDir);
     
-    File readme = new File(repoDir, "README.md");
-    Writer writer = new PrintWriter(readme);
-    writer.write("initial content");
-    writer.close();
-    
-    git.add().addFilepattern("README.md").call();
-    
-    git.commit().setAll(true).setMessage("initial commit").setCommitter("y", "y@yy.y").call();
-    
-    RepositoryWrapper repo = new RepositoryWrapper(repoDir);
+    RepositoryWrapper repo = new RepositoryWrapper(repoDir, ident).initializeRepo("README.md", "initial".getBytes(), "initial commit");
     
     Branch master  = repo.branch("master");
     Branch develop = master.newBranch("develop");
     
     Dir root = new Dir();
-    RepositoryWrapper.Ident ident = new RepositoryWrapper.Ident("Ident", "Ident@Ident.com");
     
     String firstContent = "dirctorieeeeeeeees";
     root.addFile("README.md", firstContent.getBytes());
@@ -172,7 +130,7 @@ public class RepositoryTest {
     dir2_2.addFile("1.md", "2_2__1".getBytes());
     dir2_2.addFile("2.md", "2_2__2".getBytes());
     
-    develop.commit(root, "dirctories commit", ident);
+    develop.commit(root, "dirctories commit");
     
     assertEquals(
       new HashSet<String>(develop.listFiles()),
