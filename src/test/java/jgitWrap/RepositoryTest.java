@@ -65,7 +65,7 @@ public class RepositoryTest {
   
   @Test
   public void commitTwice() throws Exception {
-    File repoDir = new File("C:\\Users\\P000163", "commitTwice");
+    File repoDir = new File("/Users/yohei", "commitTwice");
     
     Git.init().setDirectory(repoDir).setBare(false).call();
     
@@ -168,7 +168,7 @@ public class RepositoryTest {
   @Test
   public void commitAndMerge() throws Exception {
     
-    File repoDir = new File("C:\\Users\\P000163", "commitAndMerge");
+    File repoDir = new File("/Users/yohei", "commitAndMerge");
     repoDir.mkdir();
     
     Git.init().setDirectory(repoDir).setBare(false).call();
