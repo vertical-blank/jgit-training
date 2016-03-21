@@ -58,6 +58,10 @@ class RepositoryWrapper {
     this.ident = ident;
   }
   
+  public void close() {
+    this.repo.close();
+  }
+  
   public RepositoryWrapper initializeRepo(String filename, byte[] initialReadme, String comment) throws IOException {
     return this.initializeRepo(MASTER, filename, initialReadme, comment);
   }
