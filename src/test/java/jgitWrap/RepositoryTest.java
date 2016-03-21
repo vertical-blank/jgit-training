@@ -67,14 +67,19 @@ public class RepositoryTest {
   public void commitTwice() throws Exception {
     File repoDir = new File("/Users/yohei", "commitTwice");
     
-    Git.init().setDirectory(repoDir).setBare(false).call();
+    Git git = Git.init().setDirectory(repoDir).setBare(false).call();
     
     //RepositoryWrapper repo = new RepositoryWrapper(repoDir, ident).initializeRepo("README.md", "initial".getBytes(), "initial commit");
     
     RepositoryWrapper repo = new RepositoryWrapper(new File(repoDir, ".git"), ident).initializeRepo("README.md", "initial".getBytes(), "initial commit");
     
     Branch master  = repo.branch("master");
+    
+    Thread.sleep(2000);
+    
     Branch develop = master.newBranch("develop");
+    
+    Thread.sleep(2000);
     
     Dir root = new Dir();
     String firstContent = "first";
@@ -82,22 +87,27 @@ public class RepositoryTest {
     
     System.out.println(develop.commit(root, "first commit"));
     
+    Thread.sleep(2000);
+    
     root = new Dir();
     
     String secondContent = "second";
-    String anotherContent = "another";
-    root.addFile("ANOTHER.md", anotherContent.getBytes());
+    //String anotherContent = "another";
+    //root.addFile("ANOTHER.md", anotherContent.getBytes());
     root.addFile("README.md", secondContent.getBytes());
     
     System.out.println(develop.commit(root, "second commit"));
     
-    //assertEquals(streamToString(develop.getStream("README.md")), secondContent);
+    assertEquals(streamToString(develop.getStream("README.md")), secondContent);
     //assertEquals(streamToString(develop.getStream("ANOTHER.md")), anotherContent);
     
-    //assertEquals(streamToString(master.getStream("README.md")), "initial");
+    assertEquals(streamToString(master.getStream("README.md")), "initial");
+    
+    master.commit(root, "second commit");
+    
     
     // clean up.
-    // cleanUpRepo(git);
+    //cleanUpRepo(git);
   }
   
   @Test

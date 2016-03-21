@@ -231,9 +231,9 @@ class RepositoryWrapper {
         newCommit.setAuthor(ident.toPersonIdent());
         newCommit.setMessage(message);
         
-        Ref findHeadRef = this.findHeadRef();
-        if (findHeadRef != null){
-          newCommit.setParentId(findHeadRef.getObjectId());
+        Ref headRef = this.findHeadRef();
+        if (headRef != null){
+          newCommit.setParentId(headRef.getObjectId());
         }
         newCommit.setTreeId(treeId);
         
@@ -243,42 +243,14 @@ class RepositoryWrapper {
         
         RefUpdate refUpdate = this.repo.updateRef(Constants.R_HEADS + this.branchName);
         refUpdate.setNewObjectId(newHeadId);
+        refUpdate.setExpectedOldObjectId(headRef.getObjectId());
+        
         Result updateResult = refUpdate.update();
-
-        repo.writeMergeCommitMsg(null);
-        repo.writeRevertHead(null);
-
-        /*
-        switch (updateResult) {
-        case NEW:
-        case FORCED:
-        case FAST_FORWARD: {
-          // setCallable(false);
-          if (state == RepositoryState.MERGING_RESOLVED
-              || isMergeDuringRebase(state)) {
-            // Commit was successful. Now delete the files
-            // used for merge commits
-            repo.writeMergeCommitMsg(null);
-            repo.writeMergeHeads(null);
-          } else if (state == RepositoryState.CHERRY_PICKING_RESOLVED) {
-            repo.writeMergeCommitMsg(null);
-            repo.writeCherryPickHead(null);
-          } else if (state == RepositoryState.REVERTING_RESOLVED) {
-            repo.writeMergeCommitMsg(null);
-            repo.writeRevertHead(null);
-          }
-          return revCommit;
+        
+        if (updateResult == Result.FAST_FORWARD){
+          repo.writeMergeCommitMsg(null);
+          repo.writeMergeHeads(null);
         }
-        case REJECTED:
-        case LOCK_FAILURE:
-          throw new ConcurrentRefUpdateException(
-              JGitText.get().couldNotLockHEAD, ru.getRef(), rc);
-        default:
-          throw new JGitInternalException(MessageFormat.format(
-              JGitText.get().updatingRefFailed, Constants.HEAD,
-              commitId.toString(), rc));
-        }
-        */
         
         return updateResult;
       }
@@ -349,6 +321,7 @@ class RepositoryWrapper {
       
       Ref findHeadRef = this.findHeadRef();
       refUpdate.setNewObjectId(findHeadRef.getObjectId());
+      refUpdate.setRefLogMessage("refLogMessage", false);
       refUpdate.update();
       
       return newBranch;
