@@ -5,11 +5,14 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.eclipse.jgit.errors.CorruptObjectException;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.errors.MissingObjectException;
 import org.eclipse.jgit.lib.CommitBuilder;
@@ -127,11 +130,31 @@ class RepositoryWrapper {
     }
     
     /**
+     * 
+     * @return
+     * @throws IOException 
+     * @throws IncorrectObjectTypeException 
+     * @throws MissingObjectException 
+     */
+    public Commit getHead() throws MissingObjectException, IncorrectObjectTypeException, IOException {
+      Ref head = this.findHeadRef();
+      
+      if (head == null){
+        return null;
+      }
+      
+      try (RevWalk walk = new RevWalk(this.repo)) {
+        RevCommit commit = walk.parseCommit(head.getObjectId());
+        return new Commit(commit);
+      }
+    }
+    
+    /**
      * Find head ref
      * @return
      * @throws IOException
      */
-    public Ref findHeadRef() throws IOException {
+    private Ref findHeadRef() throws IOException {
       return this.repo.exactRef(Constants.R_HEADS + this.branchName);
     }
     
@@ -142,7 +165,7 @@ class RepositoryWrapper {
      * @throws IncorrectObjectTypeException
      * @throws IOException
      */
-    public List<RevCommit> listCommits() throws MissingObjectException, IncorrectObjectTypeException, IOException {
+    public List<Commit> listCommits() throws MissingObjectException, IncorrectObjectTypeException, IOException {
       Ref head = this.findHeadRef();
       
       try (RevWalk walk = new RevWalk(this.repo)) {
@@ -150,48 +173,14 @@ class RepositoryWrapper {
         
         walk.markStart(commit);
         
-        List<RevCommit> revs = new ArrayList<RevCommit>();
+        List<Commit> revs = new ArrayList<Commit>();
         for (RevCommit rev : walk) {
-          revs.add(rev);
+          revs.add(new Commit(rev));
         }
         walk.dispose();
         
         return revs;
       }
-    }
-    
-    /**
-     * List all filepaths of head
-     * @return
-     * @throws IOException
-     */
-    public List<String> listFiles() throws IOException {
-      return listFiles(null);
-    }
-    
-    /**
-     * List all filepaths of specified revision.
-     * @return
-     * @throws IOException
-     */
-    public List<String> listFiles(RevCommit rev) throws IOException {
-      List<String> list = new ArrayList<String>();
-      
-      try (RevWalk revWalk = new RevWalk(this.repo)) {
-        RevCommit commit = rev == null ? revWalk.parseCommit(this.findHeadRef().getObjectId()) : rev;
-        RevTree tree = revWalk.parseTree(commit.getTree().getId());
-        
-        try (TreeWalk treeWalk = new TreeWalk(this.repo)){
-          treeWalk.addTree(tree);
-          treeWalk.setRecursive(true);
-          
-          while(treeWalk.next()){
-            list.add(treeWalk.getPathString());
-          }
-        }
-      }
-      
-      return list;
     }
     
     /**
@@ -218,27 +207,43 @@ class RepositoryWrapper {
       return formatter;
     }
     
+
     /**
-     * Execute commit to repo.
-     * @param message commit message
-     * @return result
+     * 
+     * @param add
+     * @param message
+     * @return
      * @throws IOException
      */
-    public RefUpdate.Result commit(Dir dir, String message) throws IOException {
+    public RefUpdate.Result commit(Dir add, String message) throws IOException {
+      return commit(add, new Dir(), message);
+    }
+    
+    /**
+     * Execute commit to repo.
+     * 
+     * @param add
+     * @param rm
+     * @param message commit message
+     * @return
+     * @throws IOException
+     */
+    public RefUpdate.Result commit(Dir add, Dir rm, String message) throws IOException {
       try (ObjectInserter inserter = this.repo.newObjectInserter()) {
-        TreeFormatter formatter = formatDir(dir, inserter);
+        Commit head = this.getHead();
         
+        TreeFormatter formatter = formatDir(add, inserter);
         ObjectId treeId = inserter.insert(formatter);
+
+        
+        ObjectId oldHeadId = head != null ? head.getId() : ObjectId.zeroId();
+        List<ObjectId> parentIds = head != null ? Arrays.asList(oldHeadId) : Collections.<ObjectId>emptyList();
         
         CommitBuilder newCommit = new CommitBuilder();
         newCommit.setCommitter(ident.toPersonIdent());
         newCommit.setAuthor(ident.toPersonIdent());
         newCommit.setMessage(message);
-        
-        Ref headRef = this.findHeadRef();
-        if (headRef != null){
-          newCommit.setParentId(headRef.getObjectId());
-        }
+        newCommit.setParentIds(parentIds);
         newCommit.setTreeId(treeId);
         
         ObjectId newHeadId = inserter.insert(newCommit);
@@ -247,7 +252,7 @@ class RepositoryWrapper {
         
         RefUpdate refUpdate = this.repo.updateRef(Constants.R_HEADS + this.branchName);
         refUpdate.setNewObjectId(newHeadId);
-        refUpdate.setExpectedOldObjectId(headRef.getObjectId());
+        refUpdate.setExpectedOldObjectId(oldHeadId);
         
         Result updateResult = refUpdate.update();
         
@@ -270,8 +275,8 @@ class RepositoryWrapper {
         Ref toHeadRef = toBranch.findHeadRef();
         RevCommit toCommit  = revWalk.parseCommit(toHeadRef.getObjectId());
         
-        //this.repo.writeMergeCommitMsg("mergeMessage");
-        //this.repo.writeMergeHeads(Arrays.asList(repo.exactRef(Constants.HEAD).getObjectId()));
+        this.repo.writeMergeCommitMsg("mergeMessage");
+        this.repo.writeMergeHeads(Arrays.asList(repo.exactRef(Constants.HEAD).getObjectId()));
         
         Merger merger = mergeStrategy.newMerger(this.repo);
         merger.merge(srcCommit, toCommit);
@@ -288,25 +293,9 @@ class RepositoryWrapper {
         inserter.flush();
         inserter.close();
         
-//        RefUpdate refUpdateSrc = this.repo.updateRef(Constants.R_HEADS + this.branchName);
-//        refUpdateSrc.setNewObjectId(newHeadId);
-//        refUpdateSrc.update();
-        
         RefUpdate refUpdateTo = this.repo.updateRef(Constants.R_HEADS + toBranch.branchName);
         refUpdateTo.setNewObjectId(newHeadId);
         refUpdateTo.update();
-        
-        /*
-        formatter.append(name, tree);
-        
-        ObjectId newHeadId = inserter.insert(mergeResultTreeId);
-        inserter.flush();
-        inserter.close();
-        
-        RefUpdate refUpdate = this.repo.updateRef(Constants.R_HEADS + toBranch.branchName);
-        refUpdate.setNewObjectId(mergeResultTreeId);
-        RefUpdate.Result updateResult = refUpdate.update();
-        */
         
         return true;
       }
@@ -345,6 +334,7 @@ class RepositoryWrapper {
         
         try (TreeWalk treeWalk = new TreeWalk(this.repo)){
           treeWalk.addTree(tree);
+          treeWalk.setRecursive(true);
           treeWalk.setFilter(PathFilter.create(path));
           if(!treeWalk.next()){
             throw new FileNotFoundException("Couldnt find file.");
@@ -354,13 +344,86 @@ class RepositoryWrapper {
         }
       }
     }
+    
+    
+    class Commit {
+      
+      private final Repository repo = Branch.this.repo;
+      
+      private RevCommit rev;
+      
+      Commit(RevCommit rev){
+        this.rev = rev;
+      }
+      
+      public ObjectId getId() {
+        return this.rev.getId();
+      }
+      
+      public String getComment() {
+        return this.rev.getShortMessage();
+      }
+      
+      public Dir getDir() throws MissingObjectException, IncorrectObjectTypeException, CorruptObjectException, IOException {
+        RevTree tree = this.rev.getTree();
+        
+        Dir root = new Dir();
+        
+        try (TreeWalk treeWalk = new TreeWalk(this.repo)){
+          treeWalk.addTree(tree);
+          this.walkTree(root, treeWalk);
+        }
+        
+        return root;
+      }
+      
+      private Dir walkTree(Dir dir, TreeWalk treeWalk) throws MissingObjectException, IncorrectObjectTypeException, CorruptObjectException, IOException {
+        while (treeWalk.next()){
+          System.out.println(dir.name + ", file: " + treeWalk.getNameString() + ", subtree?: " + treeWalk.isSubtree());
+          if (treeWalk.isSubtree()){
+            treeWalk.enterSubtree();
+            dir.addDir(walkTree(new Dir(treeWalk.getNameString()), treeWalk));
+          }
+          else {
+            dir.addFile(treeWalk.getNameString(), repo.open(treeWalk.getObjectId(0)).getBytes());
+          }
+        }
+        return dir;
+      }
+      
+      /**
+       * List all filepaths of specified revision.
+       * @return
+       * @throws IOException
+       */
+      public List<String> listFiles() throws IOException {
+        List<String> list = new ArrayList<String>();
+        
+        try (RevWalk revWalk = new RevWalk(this.repo)) {
+          RevCommit commit = this.rev;
+          RevTree tree = revWalk.parseTree(commit.getTree().getId());
+          
+          try (TreeWalk treeWalk = new TreeWalk(this.repo)){
+            treeWalk.addTree(tree);
+            treeWalk.setRecursive(true);
+            
+            while(treeWalk.next()){
+              list.add(treeWalk.getPathString());
+            }
+          }
+        }
+        
+        return list;
+      }
+      
+    }
+    
   }
   
   /** Ident */
   static class Ident {
     private String name;
     private String mail;
-    private PersonIdent personIdent;
     
     Ident(String name, String mail){
       this.name = name;
@@ -369,9 +432,7 @@ class RepositoryWrapper {
     
     /** Convert to jgit navtive ident */
     public PersonIdent toPersonIdent(){
-      if (personIdent == null)
-        personIdent = new PersonIdent(this.name, this.mail);
-      return personIdent;
+      return new PersonIdent(this.name, this.mail);
     }
   }
   
@@ -379,8 +440,8 @@ class RepositoryWrapper {
   static class Dir {
     final String name;
     
-    private Map<String, Dir>    dirs  = new HashMap<String, Dir>();
-    private Map<String, Object> files = new HashMap<String, Object>();
+    public Map<String, Dir>    dirs  = new HashMap<String, Dir>();
+    public Map<String, Object> files = new HashMap<String, Object>();
     
     public Dir(){
       this.name = "root";

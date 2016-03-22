@@ -9,6 +9,7 @@ import java.io.InputStreamReader;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Map.Entry;
 
 import jgitWrap.RepositoryWrapper.Branch;
 import jgitWrap.RepositoryWrapper.Dir;
@@ -57,7 +58,7 @@ public class RepositoryTest {
     
     assertEquals(new HashSet<String>(repo.listBranches()), new HashSet<String>(Arrays.asList("master", "develop")));
     
-    assertEquals(master.listFiles(), Collections.emptyList());
+    assertEquals(master.getHead().listFiles(), Collections.emptyList());
     
     // clean up.
     cleanUpRepo(git);
@@ -65,49 +66,38 @@ public class RepositoryTest {
   
   @Test
   public void commitTwice() throws Exception {
-    File repoDir = new File("/Users/yohei", "commitTwice");
+    File repoDir = new File(System.getProperty("java.io.tmpdir"), "commitTwice");
     
     Git git = Git.init().setDirectory(repoDir).setBare(false).call();
-    
-    //RepositoryWrapper repo = new RepositoryWrapper(repoDir, ident).initializeRepo("README.md", "initial".getBytes(), "initial commit");
+    git.close();
     
     RepositoryWrapper repo = new RepositoryWrapper(new File(repoDir, ".git"), ident).initializeRepo("README.md", "initial".getBytes(), "initial commit");
     
     Branch master  = repo.branch("master");
-    
-    Thread.sleep(2000);
-    
     Branch develop = master.newBranch("develop");
-    
-    Thread.sleep(2000);
     
     Dir root = new Dir();
     String firstContent = "first";
     root.addFile("README.md", firstContent.getBytes());
     
-    System.out.println(develop.commit(root, "first commit"));
-    
-    Thread.sleep(2000);
+    develop.commit(root, "first commit");
     
     root = new Dir();
     
     String secondContent = "second";
-    //String anotherContent = "another";
-    //root.addFile("ANOTHER.md", anotherContent.getBytes());
+    String anotherContent = "another";
+    root.addFile("ANOTHER.md", anotherContent.getBytes());
     root.addFile("README.md", secondContent.getBytes());
     
-    System.out.println(develop.commit(root, "second commit"));
+    develop.commit(root, "second commit");
     
     assertEquals(streamToString(develop.getStream("README.md")), secondContent);
-    //assertEquals(streamToString(develop.getStream("ANOTHER.md")), anotherContent);
+    assertEquals(streamToString(develop.getStream("ANOTHER.md")), anotherContent);
     
     assertEquals(streamToString(master.getStream("README.md")), "initial");
     
-    master.commit(root, "second commit");
-    
-    
     // clean up.
-    //cleanUpRepo(git);
+    cleanUpRepo(git);
   }
   
   @Test
@@ -153,7 +143,7 @@ public class RepositoryTest {
     develop.commit(root, "dirctories commit");
     
     assertEquals(
-      new HashSet<String>(develop.listFiles()),
+      new HashSet<String>(develop.getHead().listFiles()),
       new HashSet<String>(Arrays.asList(
         "README.md",
         "child1/1.md",
@@ -170,6 +160,31 @@ public class RepositoryTest {
         "child2/child2-child2/2.md"
       ))
     );
+
+    assertEquals(streamToString(develop.getStream("README.md")), "dirctorieeeeeeeees");
+    assertEquals(streamToString(develop.getStream("child1/1.md")), "1__1");
+    assertEquals(streamToString(develop.getStream("child2/2.md")), "2__2");
+    assertEquals(streamToString(develop.getStream("child1/child1-child1/1.md")), "1_1__1");
+    assertEquals(streamToString(develop.getStream("child2/child2-child2/2.md")), "2_2__2");
+    
+    
+    Dir dir = develop.getHead().getDir();
+    
+    for (Entry<String, Dir> subDir : dir.dirs.entrySet()) {
+      System.out.println(subDir.getKey());
+
+      for (Entry<String, Dir> subSubDir : subDir.getValue().dirs.entrySet()) {
+        System.out.println(subSubDir.getKey());
+      }
+
+      for (Entry<String, Object> file : subDir.getValue().files.entrySet()) {
+        System.out.println(file.getKey());
+      }
+    }
+    for (Entry<String, Object> file : dir.files.entrySet()) {
+      System.out.println(file.getKey());
+    }
+    
     
     // clean up.
     cleanUpRepo(git);
@@ -178,7 +193,7 @@ public class RepositoryTest {
   @Test
   public void commitAndMerge() throws Exception {
     
-    File repoDir = new File("/Users/yohei", "commitAndMerge");
+    File repoDir = new File(System.getProperty("java.io.tmpdir"), "commitAndMerge");
     repoDir.mkdir();
     
     Git.init().setDirectory(repoDir).setBare(false).call();
@@ -186,24 +201,19 @@ public class RepositoryTest {
     RepositoryWrapper repo = new RepositoryWrapper(new File(repoDir, ".git"), ident).initializeRepo("README.md", "initial".getBytes(), "initial commit");
     
     Branch master  = repo.branch("master");
-    System.out.println(master.findHeadRef());
     
     Branch develop = master.newBranch("develop");
-    
-    System.out.println(develop.findHeadRef());
     
     Dir root = new Dir();
     String updateContent = "updated";
     root.addFile("README.md", updateContent.getBytes());
     develop.commit(root, "test commit");
     
-    System.out.println(develop.findHeadRef());
-    
     InputStream stream = develop.getStream("README.md");
     String contentFromGit = streamToString(stream);
     assertEquals(contentFromGit, updateContent);
-    
-    //develop.mergeTo(master);
+
+    develop.mergeTo(master);
     
     // clean up.
     // cleanUpRepo(git);
