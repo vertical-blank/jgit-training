@@ -1,6 +1,8 @@
 package jgitWrap;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -43,21 +45,21 @@ public class RepositoryTest {
     RepositoryWrapper repo = new RepositoryWrapper(repoDir, ident).initializeRepo("initial commit");
     
     Branch master  = repo.branch("master");
-    Branch develop = master.newBranch("develop");
+    Branch develop = master.createNewBranch("develop");
     
     Dir root = new Dir();
     String updateContent = "updated";
     root.put("README.md", updateContent.getBytes());
     develop.commit(root, "test commit");
     
-    InputStream stream = develop.getStream("README.md");
+    InputStream stream = develop.head().getStream("README.md");
     
     String contentFromGit = streamToString(stream);
     assertEquals(contentFromGit, updateContent);
     
     assertEquals(new HashSet<String>(repo.listBranches()), new HashSet<String>(Arrays.asList("master", "develop")));
     
-    assertEquals(master.getHead().listFiles(), Collections.emptyList());
+    assertEquals(master.head().listFiles(), Collections.emptyList());
     
     // clean up.
     cleanUpRepo(git);
@@ -73,7 +75,7 @@ public class RepositoryTest {
     RepositoryWrapper repo = new RepositoryWrapper(new File(repoDir, ".git"), ident).initializeRepo("README.md", "initial".getBytes(), "initial commit");
     
     Branch master  = repo.branch("master");
-    Branch develop = master.newBranch("develop");
+    Branch develop = master.createNewBranch("develop");
     Thread.sleep(1000);
     
     Dir root = new Dir();
@@ -91,10 +93,10 @@ public class RepositoryTest {
     develop.commit(root, "second commit");
     Thread.sleep(1000);
     
-    assertEquals(streamToString(develop.getStream("README.md")), secondContent);
-    assertEquals(streamToString(develop.getStream("ANOTHER.md")), anotherContent);
+    assertEquals(streamToString(develop.head().getStream("README.md")), secondContent);
+    assertEquals(streamToString(develop.head().getStream("ANOTHER.md")), anotherContent);
     
-    assertEquals(streamToString(master.getStream("README.md")), "initial");
+    assertEquals(streamToString(master.head().getStream("README.md")), "initial");
     
     // clean up.
     cleanUpRepo(git);
@@ -108,7 +110,7 @@ public class RepositoryTest {
     RepositoryWrapper repo = new RepositoryWrapper(repoDir, ident).initializeRepo("README.md", "initial".getBytes(), "initial commit");
     
     Branch master  = repo.branch("master");
-    Branch develop = master.newBranch("develop");
+    Branch develop = master.createNewBranch("develop");
     
     Dir root = new Dir();
     
@@ -143,7 +145,7 @@ public class RepositoryTest {
     develop.commit(root, "dirctories commit");
     
     assertEquals(
-      new HashSet<String>(develop.getHead().listFiles()),
+      new HashSet<String>(develop.head().listFiles()),
       new HashSet<String>(Arrays.asList(
         "README.md",
         "child1/1.md",
@@ -161,13 +163,13 @@ public class RepositoryTest {
       ))
     );
 
-    assertEquals(streamToString(develop.getStream("README.md")), "dirctorieeeeeeeees");
-    assertEquals(streamToString(develop.getStream("child1/1.md")), "1__1");
-    assertEquals(streamToString(develop.getStream("child2/2.md")), "2__2");
-    assertEquals(streamToString(develop.getStream("child1/child1-child1/1.md")), "1_1__1");
-    assertEquals(streamToString(develop.getStream("child2/child2-child2/2.md")), "2_2__2");
+    assertEquals(streamToString(develop.head().getStream("README.md")), "dirctorieeeeeeeees");
+    assertEquals(streamToString(develop.head().getStream("child1/1.md")), "1__1");
+    assertEquals(streamToString(develop.head().getStream("child2/2.md")), "2__2");
+    assertEquals(streamToString(develop.head().getStream("child1/child1-child1/1.md")), "1_1__1");
+    assertEquals(streamToString(develop.head().getStream("child2/child2-child2/2.md")), "2_2__2");
     
-    Dir dir = develop.getHead().getDir();
+    Dir dir = develop.head().getDir();
     
     assertEquals(new String(dir.file("README.md")), "dirctorieeeeeeeees");
     assertEquals(new String(dir.dir("child1").file("1.md")), "1__1");
@@ -180,9 +182,8 @@ public class RepositoryTest {
   }
   
   @Test
-  public void commitAndMerge() throws Exception {
-    
-    File repoDir = new File(System.getProperty("java.io.tmpdir"), "commitAndMerge");
+  public void commitAndMergeSimple() throws Exception {
+    File repoDir = new File(System.getProperty("java.io.tmpdir"), "commitAndMergeSimple");
     repoDir.mkdir();
     
     Git git = Git.init().setDirectory(repoDir).setBare(false).call();
@@ -192,18 +193,47 @@ public class RepositoryTest {
     
     Branch master  = repo.branch("master");
     
-    Branch develop = master.newBranch("develop");
+    Branch develop = master.createNewBranch("develop");
     
-    Dir root = new Dir();
     String updateContent = "updated";
-    root.put("README.md", updateContent.getBytes());
-    develop.commit(root, "test commit");
+    develop.commit(new Dir().put("README.md", updateContent.getBytes()), "test commit");
+    assertEquals(streamToString(develop.head().getStream("README.md")), updateContent);
     
-    InputStream stream = develop.getStream("README.md");
-    String contentFromGit = streamToString(stream);
-    assertEquals(contentFromGit, updateContent);
-
     develop.mergeTo(master);
+    
+    assertEquals(streamToString(master.head().getStream("README.md")), updateContent);
+    
+    // clean up.
+    cleanUpRepo(git);
+  }
+  
+  @Test
+  public void commitAndMergeConf() throws Exception {
+    File repoDir = new File(System.getProperty("java.io.tmpdir"), "commitAndMergeConf");
+    repoDir.mkdir();
+    
+    Git git = Git.init().setDirectory(repoDir).setBare(false).call();
+    git.close();
+    
+    RepositoryWrapper repo = new RepositoryWrapper(new File(repoDir, ".git"), ident).initializeRepo("README.md", "initial\r\ncommit".getBytes(), "initial commit");
+    
+    Branch master  = repo.branch("master");
+    
+    Branch develop = master.createNewBranch("develop");
+    
+    String updateContent = "initial\r\ncommit\r\nadded";
+    develop.commit(new Dir().put("README.md", updateContent.getBytes()), "dev commit");
+    assertArrayEquals(develop.head().getDir().file("README.md"), updateContent.getBytes());
+    
+    String masterContent = "updated\r\ncommit";
+    master.commit(new Dir().put("README.md", masterContent.getBytes()), "second commit");
+    
+    System.out.println(new String(master.head().getDir().file("README.md")));
+    
+    boolean mergeTo = develop.mergeTo(master);
+    assertFalse(mergeTo);
+    
+    // assertArrayEquals(master.head().getDir().file("README.md"), "updated\r\nadded".getBytes());
     
     // clean up.
     cleanUpRepo(git);

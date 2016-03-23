@@ -163,13 +163,13 @@ class RepositoryWrapper {
     }
     
     /**
-     * 
+     * Returns head of this branch.
      * @return
      * @throws IOException 
      * @throws IncorrectObjectTypeException 
      * @throws MissingObjectException 
      */
-    public Commit getHead() throws MissingObjectException, IncorrectObjectTypeException, IOException {
+    public Commit head() throws MissingObjectException, IncorrectObjectTypeException, IOException {
       Ref head = this.findHeadRef();
       
       if (head == null){
@@ -180,6 +180,17 @@ class RepositoryWrapper {
         RevCommit commit = walk.parseCommit(head.getObjectId());
         return new Commit(commit);
       }
+    }
+    
+    /**
+     * Returns is this branch exists.
+     * @return
+     * @throws MissingObjectException
+     * @throws IncorrectObjectTypeException
+     * @throws IOException
+     */
+    public boolean exists() throws MissingObjectException, IncorrectObjectTypeException, IOException {
+      return this.head() != null;
     }
     
     /**
@@ -248,7 +259,7 @@ class RepositoryWrapper {
      * @return
      * @throws IOException
      */
-    public RefUpdate.Result commit(Dir add, String message) throws IOException {
+    public Result commit(Dir add, String message) throws IOException {
       return commit(add, new Dir(), message);
     }
     
@@ -260,15 +271,13 @@ class RepositoryWrapper {
      * @return
      * @throws IOException
      */
-    public RefUpdate.Result commit(Dir add, Dir rm, String message) throws IOException {
+    public Result commit(Dir add, Dir rm, String message) throws IOException {
       try (ObjectInserter inserter = this.repo.newObjectInserter()) {
-        Commit head = this.getHead();
-        
         TreeFormatter formatter = formatDir(add, inserter);
         ObjectId treeId = inserter.insert(formatter);
         
-        ObjectId oldHeadId = head != null ? head.getId() : ObjectId.zeroId();
-        List<ObjectId> parentIds = head != null ? Arrays.asList(oldHeadId) : Collections.<ObjectId>emptyList();
+        Commit head = this.head();
+        List<ObjectId> parentIds = head != null ? Arrays.asList(head.getId()) : Collections.<ObjectId>emptyList();
         
         CommitBuilder newCommit = new CommitBuilder();
         newCommit.setCommitter(ident.toPersonIdent());
@@ -281,11 +290,7 @@ class RepositoryWrapper {
         inserter.flush();
         inserter.close();
         
-        RefUpdate refUpdate = this.repo.updateRef(Constants.R_HEADS + this.branchName);
-        refUpdate.setNewObjectId(newHeadId);
-        refUpdate.setExpectedOldObjectId(oldHeadId);
-        
-        Result updateResult = refUpdate.update();
+        Result updateResult = this.updateTo(newHeadId);
         
         if (updateResult == Result.FAST_FORWARD){
           repo.writeMergeCommitMsg(null);
@@ -297,12 +302,51 @@ class RepositoryWrapper {
     }
     
     /**
-     * Merge this branch into another one.
+     * Update head to new commit.
+     * @param newCommitId
+     * @return
+     * @throws IOException
+     */
+    private Result updateTo(ObjectId newCommitId) throws IOException{
+      Commit head = this.head();
+      ObjectId oldHeadId = head != null ? head.getId() : ObjectId.zeroId();
+      
+      RefUpdate refUpdate = this.repo.updateRef(Constants.R_HEADS + this.branchName);
+      refUpdate.setNewObjectId(newCommitId);
+      refUpdate.setExpectedOldObjectId(oldHeadId);
+      return refUpdate.update();
+    }
+    
+    /**
+     * Delete this branch.
+     * @return
+     * @throws IOException
+     */
+    public Result delete() throws IOException {
+      RefUpdate refDelete = repo.updateRef(Constants.R_HEADS + this.branchName);
+      refDelete.setRefLogMessage("branch deleted", false);
+      refDelete.setForceUpdate(true);
+      return refDelete.delete();
+    }
+    
+    /**
+     * Merge this branch into another one, and then delete this.
      * @param toBranch
      * @return
      * @throws IOException
      */
     public boolean mergeTo(Branch toBranch) throws IOException {
+      return mergeTo(toBranch, true);
+    }
+    
+    /**
+     * Merge this branch into another one.
+     * @param toBranch
+     * @param delete
+     * @return
+     * @throws IOException
+     */
+    public boolean mergeTo(Branch toBranch, boolean delete) throws IOException {
       ObjectInserter inserter = this.repo.newObjectInserter();
       
       try (RevWalk revWalk = new RevWalk(this.repo)) {
@@ -315,7 +359,11 @@ class RepositoryWrapper {
         this.repo.writeMergeHeads(Arrays.asList(repo.exactRef(Constants.HEAD).getObjectId()));
         
         Merger merger = MergeStrategy.RECURSIVE.newMerger(this.repo);
-        merger.merge(srcCommit, toCommit);
+        boolean merge = merger.merge(srcCommit, toCommit);
+        if (!merge){
+          return false;
+        }
+        
         ObjectId mergeResultTreeId = merger.getResultTreeId();
         
         CommitBuilder newCommit = new CommitBuilder();
@@ -329,9 +377,11 @@ class RepositoryWrapper {
         inserter.flush();
         inserter.close();
         
-        RefUpdate refUpdateTo = this.repo.updateRef(Constants.R_HEADS + toBranch.branchName);
-        refUpdateTo.setNewObjectId(newHeadId);
-        refUpdateTo.update();
+        toBranch.updateTo(newHeadId);
+        
+        if (delete){
+          this.delete();
+        }
         
         return true;
       }
@@ -343,42 +393,14 @@ class RepositoryWrapper {
      * @return instance of new branch
      * @throws IOException
      */
-    public Branch newBranch(String newBranchName) throws IOException {
+    public Branch createNewBranch(String newBranchName) throws IOException {
       Branch newBranch = RepositoryWrapper.this.branch(newBranchName);
       
-      RefUpdate refUpdate = this.repo.updateRef(Constants.R_HEADS + newBranchName);
-      
       Ref findHeadRef = this.findHeadRef();
-      refUpdate.setNewObjectId(findHeadRef.getObjectId());
-      refUpdate.setRefLogMessage("refLogMessage", false);
-      refUpdate.update();
+      
+      newBranch.updateTo(findHeadRef.getObjectId());
       
       return newBranch;
-    }
-    
-    /**
-     * Returns inputstream of file contained by head of this brach.
-     * @param path
-     * @return
-     * @throws IOException
-     * @throws FileNotFoundException
-     */
-    public InputStream getStream(String path) throws IOException, FileNotFoundException {
-      try (RevWalk revWalk = new RevWalk(this.repo)){
-        RevCommit commit = revWalk.parseCommit(this.findHeadRef().getObjectId());
-        RevTree tree = revWalk.parseTree(commit.getTree().getId());
-        
-        try (TreeWalk treeWalk = new TreeWalk(this.repo)){
-          treeWalk.addTree(tree);
-          treeWalk.setRecursive(true);
-          treeWalk.setFilter(PathFilter.create(path));
-          if(!treeWalk.next()){
-            throw new FileNotFoundException("Couldnt find file.");
-          }
-          
-          return repo.open(treeWalk.getObjectId(0)).openStream();
-        }
-      }
     }
     
     /**
@@ -497,6 +519,31 @@ class RepositoryWrapper {
         }
         
         return list;
+      }
+      
+      /**
+       * Returns inputstream of file contained by head of this brach.
+       * @param path
+       * @return
+       * @throws IOException
+       * @throws FileNotFoundException
+       */
+      public InputStream getStream(String path) throws IOException, FileNotFoundException {
+        try (RevWalk revWalk = new RevWalk(this.repo)){
+          RevCommit commit = this.rev;
+          RevTree tree = revWalk.parseTree(commit.getTree().getId());
+          
+          try (TreeWalk treeWalk = new TreeWalk(this.repo)){
+            treeWalk.addTree(tree);
+            treeWalk.setRecursive(true);
+            treeWalk.setFilter(PathFilter.create(path));
+            if(!treeWalk.next()){
+              throw new FileNotFoundException("Couldnt find file.");
+            }
+            
+            return repo.open(treeWalk.getObjectId(0)).openStream();
+          }
+        }
       }
     }
   }
