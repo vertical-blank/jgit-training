@@ -61,26 +61,59 @@ class RepositoryWrapper {
     this.ident = ident;
   }
   
+  /**
+   * Close
+   */
   public void close() {
     this.repo.close();
   }
   
-  public RepositoryWrapper initializeRepo(String filename, byte[] initialReadme, String comment) throws IOException {
-    return this.initializeRepo(MASTER, filename, initialReadme, comment);
+  /**
+   * Initialize master branch with a file
+   * @param filename
+   * @param filecontent
+   * @param comment
+   * @return
+   * @throws IOException
+   */
+  public RepositoryWrapper initializeRepo(String filename, byte[] filecontent, String comment) throws IOException {
+    return this.initializeRepo(MASTER, filename, filecontent, comment);
   }
   
-  public RepositoryWrapper initializeRepo(String mastername, String filename, byte[] initialReadme, String comment) throws IOException {
+  /**
+   * Initialize branch with file
+   * @param mastername
+   * @param filename
+   * @param filecontent
+   * @param comment
+   * @return
+   * @throws IOException
+   */
+  public RepositoryWrapper initializeRepo(String mastername, String filename, byte[] filecontent, String comment) throws IOException {
     Branch master = this.branch(mastername);
     Dir root = new Dir();
-    root.put(filename, initialReadme);
+    root.put(filename, filecontent);
     master.commit(root, comment);
     return this;
   }
   
+  /**
+   * Initialize master branch as blank
+   * @param comment
+   * @return
+   * @throws IOException
+   */
   public RepositoryWrapper initializeRepo(String comment) throws IOException {
     return this.initializeRepo(MASTER, comment);
   }
   
+  /**
+   * Initialize branch as blank
+   * @param mastername
+   * @param comment
+   * @return
+   * @throws IOException
+   */
   public RepositoryWrapper initializeRepo(String mastername, String comment) throws IOException {
     Branch master = this.branch(mastername);
     Dir root = new Dir();
@@ -209,7 +242,7 @@ class RepositoryWrapper {
     
 
     /**
-     * 
+     * Execute commit to this branch. 
      * @param add
      * @param message
      * @return
@@ -220,8 +253,7 @@ class RepositoryWrapper {
     }
     
     /**
-     * Execute commit to repo.
-     * 
+     * Execute commit to this branch.
      * @param add
      * @param rm
      * @param message commit message
@@ -234,7 +266,6 @@ class RepositoryWrapper {
         
         TreeFormatter formatter = formatDir(add, inserter);
         ObjectId treeId = inserter.insert(formatter);
-
         
         ObjectId oldHeadId = head != null ? head.getId() : ObjectId.zeroId();
         List<ObjectId> parentIds = head != null ? Arrays.asList(oldHeadId) : Collections.<ObjectId>emptyList();
@@ -265,7 +296,12 @@ class RepositoryWrapper {
       }
     }
     
-    private MergeStrategy mergeStrategy = MergeStrategy.RECURSIVE;
+    /**
+     * Merge this branch into another one.
+     * @param toBranch
+     * @return
+     * @throws IOException
+     */
     public boolean mergeTo(Branch toBranch) throws IOException {
       ObjectInserter inserter = this.repo.newObjectInserter();
       
@@ -278,7 +314,7 @@ class RepositoryWrapper {
         this.repo.writeMergeCommitMsg("mergeMessage");
         this.repo.writeMergeHeads(Arrays.asList(repo.exactRef(Constants.HEAD).getObjectId()));
         
-        Merger merger = mergeStrategy.newMerger(this.repo);
+        Merger merger = MergeStrategy.RECURSIVE.newMerger(this.repo);
         merger.merge(srcCommit, toCommit);
         ObjectId mergeResultTreeId = merger.getResultTreeId();
         
@@ -345,25 +381,59 @@ class RepositoryWrapper {
       }
     }
     
-    
+    /**
+     * Wrapper of RevCommit.
+     */
     class Commit {
       
       private final Repository repo = Branch.this.repo;
       
       private RevCommit rev;
       
+      /**
+       * Constructor
+       * @param rev
+       */
       Commit(RevCommit rev){
         this.rev = rev;
       }
       
+      /**
+       * Returns RevId.
+       * @return
+       */
       public ObjectId getId() {
         return this.rev.getId();
       }
       
+      /**
+       * Returns comment.
+       * @return
+       */
       public String getComment() {
         return this.rev.getShortMessage();
       }
       
+      /**
+       * Returns parents.
+       * @return
+       */
+      public List<Commit> getParents() {
+        List<Commit> commits = new ArrayList<RepositoryWrapper.Branch.Commit>();
+        for(RevCommit commit : rev.getParents()){
+          commits.add(new Commit(commit));
+        }
+        return commits;
+      }
+      
+      /**
+       * Returns structured directories and files.
+       * @return
+       * @throws MissingObjectException
+       * @throws IncorrectObjectTypeException
+       * @throws CorruptObjectException
+       * @throws IOException
+       */
       public Dir getDir() throws MissingObjectException, IncorrectObjectTypeException, CorruptObjectException, IOException {
         RevTree tree = this.rev.getTree();
         
@@ -377,6 +447,16 @@ class RepositoryWrapper {
         return root;
       }
       
+      /**
+       * Walkthrough tree recursively.
+       * @param dir
+       * @param treeWalk
+       * @return
+       * @throws MissingObjectException
+       * @throws IncorrectObjectTypeException
+       * @throws CorruptObjectException
+       * @throws IOException
+       */
       private Dir walkTree(Dir dir, TreeWalk treeWalk) throws MissingObjectException, IncorrectObjectTypeException, CorruptObjectException, IOException {
         while (treeWalk.next()){
           if (treeWalk.isPostChildren()){
