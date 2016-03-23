@@ -202,6 +202,7 @@ public class RepositoryTest {
     develop.mergeTo(master);
     
     assertEquals(streamToString(master.head().getStream("README.md")), updateContent);
+    assertFalse(develop.exists());
     
     // clean up.
     cleanUpRepo(git);
