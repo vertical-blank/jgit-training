@@ -8,9 +8,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 import org.eclipse.jgit.errors.CorruptObjectException;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
@@ -72,7 +72,7 @@ class RepositoryWrapper {
   public RepositoryWrapper initializeRepo(String mastername, String filename, byte[] initialReadme, String comment) throws IOException {
     Branch master = this.branch(mastername);
     Dir root = new Dir();
-    root.addFile(filename, initialReadme);
+    root.put(filename, initialReadme);
     master.commit(root, comment);
     return this;
   }
@@ -379,13 +379,16 @@ class RepositoryWrapper {
       
       private Dir walkTree(Dir dir, TreeWalk treeWalk) throws MissingObjectException, IncorrectObjectTypeException, CorruptObjectException, IOException {
         while (treeWalk.next()){
-          System.out.println(dir.name + ", file: " + treeWalk.getNameString() + ", subtree?: " + treeWalk.isSubtree());
+          if (treeWalk.isPostChildren()){
+            return dir;
+          }
           if (treeWalk.isSubtree()){
+            treeWalk.setPostOrderTraversal(true);
             treeWalk.enterSubtree();
-            dir.addDir(walkTree(new Dir(treeWalk.getNameString()), treeWalk));
+            dir.put(walkTree(new Dir(treeWalk.getNameString()), treeWalk));
           }
           else {
-            dir.addFile(treeWalk.getNameString(), repo.open(treeWalk.getObjectId(0)).getBytes());
+            dir.put(treeWalk.getNameString(), repo.open(treeWalk.getObjectId(0)).getBytes());
           }
         }
         return dir;
@@ -415,9 +418,7 @@ class RepositoryWrapper {
         
         return list;
       }
-      
     }
-    
   }
   
   /** Ident */
@@ -440,8 +441,8 @@ class RepositoryWrapper {
   static class Dir {
     final String name;
     
-    public Map<String, Dir>    dirs  = new HashMap<String, Dir>();
-    public Map<String, Object> files = new HashMap<String, Object>();
+    public Map<String, Dir>    dirs  = new TreeMap<String, Dir>();
+    public Map<String, Object> files = new TreeMap<String, Object>();
     
     public Dir(){
       this.name = "root";
@@ -451,12 +452,20 @@ class RepositoryWrapper {
       this.name = name;
     }
     
-    public Dir addFile(String filename, byte[] content) throws IOException {
+    public Dir dir(String name){
+      return this.dirs.get(name);
+    }
+    
+    public byte[] file(String name){
+      return (byte[]) this.files.get(name);
+    }
+    
+    public Dir put(String filename, byte[] content) throws IOException {
       this.files.put(filename, content);
       return this;
     }
     
-    public Dir addDir(Dir dir) throws IOException {
+    public Dir put(Dir dir) throws IOException {
       this.dirs.put(dir.name, dir);
       return this;
     }

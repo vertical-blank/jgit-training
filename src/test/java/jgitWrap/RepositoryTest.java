@@ -9,7 +9,6 @@ import java.io.InputStreamReader;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Map.Entry;
 
 import jgitWrap.RepositoryWrapper.Branch;
 import jgitWrap.RepositoryWrapper.Dir;
@@ -48,7 +47,7 @@ public class RepositoryTest {
     
     Dir root = new Dir();
     String updateContent = "updated";
-    root.addFile("README.md", updateContent.getBytes());
+    root.put("README.md", updateContent.getBytes());
     develop.commit(root, "test commit");
     
     InputStream stream = develop.getStream("README.md");
@@ -75,21 +74,22 @@ public class RepositoryTest {
     
     Branch master  = repo.branch("master");
     Branch develop = master.newBranch("develop");
+    Thread.sleep(1000);
     
     Dir root = new Dir();
     String firstContent = "first";
-    root.addFile("README.md", firstContent.getBytes());
-    
+    root.put("README.md", firstContent.getBytes());
     develop.commit(root, "first commit");
+    Thread.sleep(1000);
     
     root = new Dir();
     
     String secondContent = "second";
     String anotherContent = "another";
-    root.addFile("ANOTHER.md", anotherContent.getBytes());
-    root.addFile("README.md", secondContent.getBytes());
-    
+    root.put("ANOTHER.md", anotherContent.getBytes());
+    root.put("README.md", secondContent.getBytes());
     develop.commit(root, "second commit");
+    Thread.sleep(1000);
     
     assertEquals(streamToString(develop.getStream("README.md")), secondContent);
     assertEquals(streamToString(develop.getStream("ANOTHER.md")), anotherContent);
@@ -113,7 +113,7 @@ public class RepositoryTest {
     Dir root = new Dir();
     
     String firstContent = "dirctorieeeeeeeees";
-    root.addFile("README.md", firstContent.getBytes());
+    root.put("README.md", firstContent.getBytes());
     
     Dir dir1 = new Dir("child1");
     Dir dir2 = new Dir("child2");
@@ -121,24 +121,24 @@ public class RepositoryTest {
     Dir dir1_2 = new Dir("child1-child2");
     Dir dir2_1 = new Dir("child2-child1");
     Dir dir2_2 = new Dir("child2-child2");
-    root.addDir(dir1).addDir(dir2);
-    dir1.addDir(dir1_1).addDir(dir1_2);
-    dir2.addDir(dir2_1).addDir(dir2_2);
+    root.put(dir1).put(dir2);
+    dir1.put(dir1_1).put(dir1_2);
+    dir2.put(dir2_1).put(dir2_2);
     
     
-    dir1.addFile("1.md", "1__1".getBytes());
-    dir1.addFile("2.md", "1__2".getBytes());
-    dir2.addFile("1.md", "2__1".getBytes());
-    dir2.addFile("2.md", "2__2".getBytes());
+    dir1.put("1.md", "1__1".getBytes());
+    dir1.put("2.md", "1__2".getBytes());
+    dir2.put("1.md", "2__1".getBytes());
+    dir2.put("2.md", "2__2".getBytes());
     
-    dir1_1.addFile("1.md", "1_1__1".getBytes());
-    dir1_1.addFile("2.md", "1_1__2".getBytes());
-    dir1_2.addFile("1.md", "1_2__1".getBytes());
-    dir1_2.addFile("2.md", "1_2__2".getBytes());
-    dir2_1.addFile("1.md", "2_1__1".getBytes());
-    dir2_1.addFile("2.md", "2_1__2".getBytes());
-    dir2_2.addFile("1.md", "2_2__1".getBytes());
-    dir2_2.addFile("2.md", "2_2__2".getBytes());
+    dir1_1.put("1.md", "1_1__1".getBytes());
+    dir1_1.put("2.md", "1_1__2".getBytes());
+    dir1_2.put("1.md", "1_2__1".getBytes());
+    dir1_2.put("2.md", "1_2__2".getBytes());
+    dir2_1.put("1.md", "2_1__1".getBytes());
+    dir2_1.put("2.md", "2_1__2".getBytes());
+    dir2_2.put("1.md", "2_2__1".getBytes());
+    dir2_2.put("2.md", "2_2__2".getBytes());
     
     develop.commit(root, "dirctories commit");
     
@@ -167,24 +167,13 @@ public class RepositoryTest {
     assertEquals(streamToString(develop.getStream("child1/child1-child1/1.md")), "1_1__1");
     assertEquals(streamToString(develop.getStream("child2/child2-child2/2.md")), "2_2__2");
     
-    
     Dir dir = develop.getHead().getDir();
     
-    for (Entry<String, Dir> subDir : dir.dirs.entrySet()) {
-      System.out.println(subDir.getKey());
-
-      for (Entry<String, Dir> subSubDir : subDir.getValue().dirs.entrySet()) {
-        System.out.println(subSubDir.getKey());
-      }
-
-      for (Entry<String, Object> file : subDir.getValue().files.entrySet()) {
-        System.out.println(file.getKey());
-      }
-    }
-    for (Entry<String, Object> file : dir.files.entrySet()) {
-      System.out.println(file.getKey());
-    }
-    
+    assertEquals(new String(dir.file("README.md")), "dirctorieeeeeeeees");
+    assertEquals(new String(dir.dir("child1").file("1.md")), "1__1");
+    assertEquals(new String(dir.dir("child2").file("2.md")), "2__2");
+    assertEquals(new String(dir.dir("child1").dir("child1-child1").file("1.md")), "1_1__1");
+    assertEquals(new String(dir.dir("child2").dir("child2-child2").file("2.md")), "2_2__2");
     
     // clean up.
     cleanUpRepo(git);
@@ -196,7 +185,8 @@ public class RepositoryTest {
     File repoDir = new File(System.getProperty("java.io.tmpdir"), "commitAndMerge");
     repoDir.mkdir();
     
-    Git.init().setDirectory(repoDir).setBare(false).call();
+    Git git = Git.init().setDirectory(repoDir).setBare(false).call();
+    git.close();
     
     RepositoryWrapper repo = new RepositoryWrapper(new File(repoDir, ".git"), ident).initializeRepo("README.md", "initial".getBytes(), "initial commit");
     
@@ -206,7 +196,7 @@ public class RepositoryTest {
     
     Dir root = new Dir();
     String updateContent = "updated";
-    root.addFile("README.md", updateContent.getBytes());
+    root.put("README.md", updateContent.getBytes());
     develop.commit(root, "test commit");
     
     InputStream stream = develop.getStream("README.md");
@@ -216,7 +206,7 @@ public class RepositoryTest {
     develop.mergeTo(master);
     
     // clean up.
-    // cleanUpRepo(git);
+    cleanUpRepo(git);
   }
   
   private String streamToString(InputStream stream) throws Exception {
